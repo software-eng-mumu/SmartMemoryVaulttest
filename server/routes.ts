@@ -2,6 +2,9 @@ import type { Express } from "express";
 import { createServer } from "http";
 import { storage } from "./storage";
 import { insertPhotoSchema, insertAlbumSchema } from "@shared/schema";
+import * as fs from 'fs';
+import { exec } from 'child_process';
+import fetch from 'node-fetch';
 
 export async function registerRoutes(app: Express) {
   // Photo routes
@@ -72,6 +75,50 @@ export async function registerRoutes(app: Express) {
     }
     await storage.deleteAlbum(id);
     res.status(204).send();
+  });
+
+  app.post("/api/generate-video", async (req, res) => {
+    const { photos } = req.body;
+
+    if (!Array.isArray(photos) || photos.length === 0) {
+      return res.status(400).json({ message: "Invalid photos array" });
+    }
+
+    try {
+      const tempDir = `/tmp/slideshow-${Date.now()}`;
+      await fs.promises.mkdir(tempDir, { recursive: true });
+
+      for (let i = 0; i < photos.length; i++) {
+        const response = await fetch(photos[i]);
+        const buffer = await response.buffer();
+        await fs.promises.writeFile(`${tempDir}/photo-${i}.jpg`, buffer);
+      }
+
+      const inputFile = `${tempDir}/input.txt`;
+      const fileContent = photos.map((_, i) =>
+        `file 'photo-${i}.jpg'\nduration 3`
+      ).join('\n');
+      await fs.promises.writeFile(inputFile, fileContent);
+
+      await new Promise((resolve, reject) => {
+        exec(
+          `ffmpeg -f concat -safe 0 -i ${inputFile} -vf "fade=t=in:st=0:d=1,fade=t=out:st=2:d=1" -pix_fmt yuv420p ${tempDir}/output.mp4`,
+          (error) => {
+            if (error) reject(error);
+            else resolve(null);
+          }
+        );
+      });
+
+      const video = await fs.promises.readFile(`${tempDir}/output.mp4`);
+      res.setHeader('Content-Type', 'video/mp4');
+      res.send(video);
+
+      await fs.promises.rm(tempDir, { recursive: true });
+    } catch (error) {
+      console.error('Video generation error:', error);
+      res.status(500).json({ message: "Failed to generate video" });
+    }
   });
 
   const httpServer = createServer(app);

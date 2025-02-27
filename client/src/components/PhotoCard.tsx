@@ -22,9 +22,11 @@ import PhotoEditor from "./PhotoEditor";
 
 interface PhotoCardProps {
   photo: Photo;
+  selected?: boolean;
+  onSelect?: () => void;
 }
 
-export default function PhotoCard({ photo }: PhotoCardProps) {
+export default function PhotoCard({ photo, selected, onSelect }: PhotoCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const { toast } = useToast();
@@ -53,9 +55,10 @@ export default function PhotoCard({ photo }: PhotoCardProps) {
   return (
     <>
       <Card
-        className="overflow-hidden"
+        className={`overflow-hidden ${selected ? 'ring-2 ring-primary' : ''}`}
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
+        onClick={onSelect}
       >
         <CardHeader className="p-0 relative aspect-square">
           <img
