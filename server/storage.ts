@@ -1,11 +1,13 @@
 import { Photo, Album, InsertPhoto, InsertAlbum } from "@shared/schema";
+import * as fs from 'fs';
+import * as path from 'path';
 
 export interface IStorage {
   // Photo operations
   getPhotos(): Promise<Photo[]>;
   getPhoto(id: number): Promise<Photo | undefined>;
   getPhotosByAlbum(albumId: number): Promise<Photo[]>;
-  createPhoto(photo: InsertPhoto): Promise<Photo>;
+  createPhoto(photo: InsertPhoto, file: Buffer): Promise<Photo>;
   deletePhoto(id: number): Promise<void>;
   searchPhotos(query: string): Promise<Photo[]>;
 
@@ -21,30 +23,37 @@ export class MemStorage implements IStorage {
   private albums: Map<number, Album>;
   private photoId: number;
   private albumId: number;
+  private uploadDir: string;
 
   constructor() {
     this.photos = new Map();
     this.albums = new Map();
     this.photoId = 1;
     this.albumId = 1;
+    this.uploadDir = path.join(process.cwd(), 'uploads');
+
+    // Create uploads directory if it doesn't exist
+    if (!fs.existsSync(this.uploadDir)) {
+      fs.mkdirSync(this.uploadDir, { recursive: true });
+    }
 
     // Add sample photos
     const samplePhotos: Photo[] = [
-      "https://images.unsplash.com/photo-1518998053901-5348d3961a04",
-      "https://images.unsplash.com/photo-1578496479914-7ef3b0193be3",
-      "https://images.unsplash.com/photo-1583912267382-49a82d19bd94",
-      "https://images.unsplash.com/photo-1576086476234-1103be98f096",
-      "https://images.unsplash.com/photo-1579165466741-7f35e4755660",
-      "https://images.unsplash.com/photo-1576669801838-1b1c52121e6a",
-      "https://images.unsplash.com/photo-1583911860367-8b9fa77c6f4c",
-      "https://images.unsplash.com/photo-1583911860205-72f8ac8ddcbe",
-      "https://images.unsplash.com/photo-1576086671120-8cf1f46d1373",
-      "https://images.unsplash.com/photo-1578496479939-722d9dd1cc5b"
-    ].map((url, i) => ({
+      "sample1.jpg",
+      "sample2.jpg",
+      "sample3.jpg",
+      "sample4.jpg",
+      "sample5.jpg",
+      "sample6.jpg",
+      "sample7.jpg",
+      "sample8.jpg",
+      "sample9.jpg",
+      "sample10.jpg"
+    ].map((filename, i) => ({
       id: i + 1,
       title: `Sample Photo ${i + 1}`,
       description: "A sample photo",
-      url,
+      url: `/uploads/${filename}`,
       tags: ["sample"],
       albumId: null,
       createdAt: new Date()
@@ -66,19 +75,38 @@ export class MemStorage implements IStorage {
     return Array.from(this.photos.values()).filter(p => p.albumId === albumId);
   }
 
-  async createPhoto(photo: InsertPhoto): Promise<Photo> {
+  async createPhoto(photo: InsertPhoto, file: Buffer): Promise<Photo> {
+    const filename = `photo-${Date.now()}.jpg`;
+    const filepath = path.join(this.uploadDir, filename);
+
+    // Save file to disk
+    await fs.promises.writeFile(filepath, file);
+
     const newPhoto: Photo = {
       ...photo,
       id: this.photoId++,
+      url: `/uploads/${filename}`,
       createdAt: new Date(),
       description: photo.description || null
     };
+
     this.photos.set(newPhoto.id, newPhoto);
     return newPhoto;
   }
 
   async deletePhoto(id: number): Promise<void> {
-    this.photos.delete(id);
+    const photo = this.photos.get(id);
+    if (photo) {
+      // Delete file from disk
+      const filename = photo.url.split('/').pop();
+      if (filename) {
+        const filepath = path.join(this.uploadDir, filename);
+        if (fs.existsSync(filepath)) {
+          await fs.promises.unlink(filepath);
+        }
+      }
+      this.photos.delete(id);
+    }
   }
 
   async searchPhotos(query: string): Promise<Photo[]> {

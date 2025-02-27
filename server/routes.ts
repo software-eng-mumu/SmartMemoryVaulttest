@@ -4,9 +4,22 @@ import { storage } from "./storage";
 import { insertPhotoSchema, insertAlbumSchema } from "@shared/schema";
 import * as fs from 'fs';
 import { exec } from 'child_process';
-import fetch from 'node-fetch';
+import multer from 'multer';
+import path from 'path';
+import express from 'express';
+
+// Configure multer for file uploads
+const upload = multer({ 
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 5 * 1024 * 1024 // 5MB limit
+  }
+});
 
 export async function registerRoutes(app: Express) {
+  // Serve uploaded files
+  app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
+
   // Photo routes
   app.get("/api/photos", async (_req, res) => {
     const photos = await storage.getPhotos();
@@ -22,13 +35,25 @@ export async function registerRoutes(app: Express) {
     res.json(photos);
   });
 
-  app.post("/api/photos", async (req, res) => {
-    const result = insertPhotoSchema.safeParse(req.body);
-    if (!result.success) {
-      return res.status(400).json({ message: "Invalid photo data" });
+  app.post("/api/photos", upload.single('file'), async (req, res) => {
+    try {
+      const photoData = JSON.parse(req.body.data);
+      const result = insertPhotoSchema.safeParse(photoData);
+
+      if (!result.success) {
+        return res.status(400).json({ message: "Invalid photo data" });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ message: "No file uploaded" });
+      }
+
+      const photo = await storage.createPhoto(result.data, req.file.buffer);
+      res.status(201).json(photo);
+    } catch (error) {
+      console.error('Error uploading photo:', error);
+      res.status(500).json({ message: "Failed to upload photo" });
     }
-    const photo = await storage.createPhoto(result.data);
-    res.status(201).json(photo);
   });
 
   app.delete("/api/photos/:id", async (req, res) => {
@@ -85,35 +110,49 @@ export async function registerRoutes(app: Express) {
     }
 
     try {
-      const tempDir = `/tmp/slideshow-${Date.now()}`;
+      const tempDir = path.join(process.cwd(), 'temp', `slideshow-${Date.now()}`);
       await fs.promises.mkdir(tempDir, { recursive: true });
 
+      // Create a file list for ffmpeg
+      const inputFile = path.join(tempDir, 'input.txt');
+      let fileContent = '';
+
       for (let i = 0; i < photos.length; i++) {
-        const response = await fetch(photos[i]);
-        const buffer = await response.buffer();
-        await fs.promises.writeFile(`${tempDir}/photo-${i}.jpg`, buffer);
+        const photo = await storage.getPhoto(parseInt(photos[i]));
+        if (!photo) continue;
+
+        const sourceFile = path.join(process.cwd(), photo.url.substring(1));
+        const targetFile = path.join(tempDir, `photo-${i}.jpg`);
+
+        // Copy photo to temp directory
+        await fs.promises.copyFile(sourceFile, targetFile);
+
+        // Add to input file with duration
+        fileContent += `file 'photo-${i}.jpg'\nduration 3\n`;
       }
 
-      const inputFile = `${tempDir}/input.txt`;
-      const fileContent = photos.map((_, i) =>
-        `file 'photo-${i}.jpg'\nduration 3`
-      ).join('\n');
       await fs.promises.writeFile(inputFile, fileContent);
 
+      // Generate video with ffmpeg
       await new Promise((resolve, reject) => {
-        exec(
-          `ffmpeg -f concat -safe 0 -i ${inputFile} -vf "fade=t=in:st=0:d=1,fade=t=out:st=2:d=1" -pix_fmt yuv420p ${tempDir}/output.mp4`,
-          (error) => {
-            if (error) reject(error);
-            else resolve(null);
+        const command = `ffmpeg -f concat -safe 0 -i "${inputFile}" -vf "fade=t=in:st=0:d=1,fade=t=out:st=2:d=1" -pix_fmt yuv420p "${path.join(tempDir, 'output.mp4')}"`;
+        exec(command, { cwd: tempDir }, (error) => {
+          if (error) {
+            console.error('FFmpeg error:', error);
+            reject(error);
+          } else {
+            resolve(null);
           }
-        );
+        });
       });
 
-      const video = await fs.promises.readFile(`${tempDir}/output.mp4`);
+      // Send video file
+      const video = await fs.promises.readFile(path.join(tempDir, 'output.mp4'));
       res.setHeader('Content-Type', 'video/mp4');
+      res.setHeader('Content-Disposition', 'attachment; filename=slideshow.mp4');
       res.send(video);
 
+      // Cleanup
       await fs.promises.rm(tempDir, { recursive: true });
     } catch (error) {
       console.error('Video generation error:', error);
