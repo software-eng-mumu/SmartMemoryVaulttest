@@ -16,35 +16,62 @@ const upload = multer({
 });
 
 export async function registerRoutes(app: Express) {
+  console.log('开始初始化应用...');
+
+  try {
+    // 初始化示例照片
+    console.log('开始初始化示例照片...');
+    await storage.initializeSamplePhotos();
+    console.log('示例照片初始化完成');
+  } catch (error) {
+    console.error('初始化示例照片时出错:', error);
+    // 继续启动应用，不要因为示例数据初始化失败而中断启动
+  }
+
   // Photo routes
   app.get("/api/photos", async (_req, res) => {
-    const photos = await storage.getPhotos();
-    res.json(photos);
+    try {
+      const photos = await storage.getPhotos();
+      res.json(photos);
+    } catch (error) {
+      console.error('获取照片列表时出错:', error);
+      res.status(500).json({ message: "获取照片列表失败" });
+    }
   });
 
   // Serve photo images
   app.get("/api/photos/:id/image", async (req, res) => {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) {
-      return res.status(400).json({ message: "Invalid photo ID" });
-    }
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid photo ID" });
+      }
 
-    const photo = await storage.getPhoto(id);
-    if (!photo) {
-      return res.status(404).json({ message: "Photo not found" });
-    }
+      const photo = await storage.getPhoto(id);
+      if (!photo) {
+        return res.status(404).json({ message: "Photo not found" });
+      }
 
-    res.setHeader('Content-Type', 'image/jpeg');
-    res.send(photo.imageData);
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.send(photo.imageData);
+    } catch (error) {
+      console.error('获取照片图片时出错:', error);
+      res.status(500).json({ message: "获取照片图片失败" });
+    }
   });
 
   app.get("/api/photos/search", async (req, res) => {
-    const query = req.query.q as string;
-    if (!query) {
-      return res.status(400).json({ message: "Search query required" });
+    try {
+      const query = req.query.q as string;
+      if (!query) {
+        return res.status(400).json({ message: "Search query required" });
+      }
+      const photos = await storage.searchPhotos(query);
+      res.json(photos);
+    } catch (error) {
+      console.error('搜索照片时出错:', error);
+      res.status(500).json({ message: "搜索照片失败" });
     }
-    const photos = await storage.searchPhotos(query);
-    res.json(photos);
   });
 
   app.post("/api/photos", upload.single('file'), async (req, res) => {
@@ -67,55 +94,80 @@ export async function registerRoutes(app: Express) {
 
       res.status(201).json(photo);
     } catch (error) {
-      console.error('Error uploading photo:', error);
-      res.status(500).json({ message: "Failed to upload photo" });
+      console.error('上传照片时出错:', error);
+      res.status(500).json({ message: "上传照片失败" });
     }
   });
 
   app.delete("/api/photos/:id", async (req, res) => {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) {
-      return res.status(400).json({ message: "Invalid photo ID" });
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid photo ID" });
+      }
+      await storage.deletePhoto(id);
+      res.status(204).send();
+    } catch (error) {
+      console.error('删除照片时出错:', error);
+      res.status(500).json({ message: "删除照片失败" });
     }
-    await storage.deletePhoto(id);
-    res.status(204).send();
   });
 
   // Album routes
   app.get("/api/albums", async (_req, res) => {
-    const albums = await storage.getAlbums();
-    res.json(albums);
+    try {
+      const albums = await storage.getAlbums();
+      res.json(albums);
+    } catch (error) {
+      console.error('获取相册列表时出错:', error);
+      res.status(500).json({ message: "获取相册列表失败" });
+    }
   });
 
   app.get("/api/albums/:id", async (req, res) => {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) {
-      return res.status(400).json({ message: "Invalid album ID" });
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid album ID" });
+      }
+      const album = await storage.getAlbum(id);
+      if (!album) {
+        return res.status(404).json({ message: "Album not found" });
+      }
+      const photos = await storage.getPhotosByAlbum(id);
+      res.json({ ...album, photos });
+    } catch (error) {
+      console.error('获取相册详情时出错:', error);
+      res.status(500).json({ message: "获取相册详情失败" });
     }
-    const album = await storage.getAlbum(id);
-    if (!album) {
-      return res.status(404).json({ message: "Album not found" });
-    }
-    const photos = await storage.getPhotosByAlbum(id);
-    res.json({ ...album, photos });
   });
 
   app.post("/api/albums", async (req, res) => {
-    const result = insertAlbumSchema.safeParse(req.body);
-    if (!result.success) {
-      return res.status(400).json({ message: "Invalid album data" });
+    try {
+      const result = insertAlbumSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ message: "Invalid album data" });
+      }
+      const album = await storage.createAlbum(result.data);
+      res.status(201).json(album);
+    } catch (error) {
+      console.error('创建相册时出错:', error);
+      res.status(500).json({ message: "创建相册失败" });
     }
-    const album = await storage.createAlbum(result.data);
-    res.status(201).json(album);
   });
 
   app.delete("/api/albums/:id", async (req, res) => {
-    const id = parseInt(req.params.id);
-    if (isNaN(id)) {
-      return res.status(400).json({ message: "Invalid album ID" });
+    try {
+      const id = parseInt(req.params.id);
+      if (isNaN(id)) {
+        return res.status(400).json({ message: "Invalid album ID" });
+      }
+      await storage.deleteAlbum(id);
+      res.status(204).send();
+    } catch (error) {
+      console.error('删除相册时出错:', error);
+      res.status(500).json({ message: "删除相册失败" });
     }
-    await storage.deleteAlbum(id);
-    res.status(204).send();
   });
 
   app.post("/api/generate-video", async (req, res) => {

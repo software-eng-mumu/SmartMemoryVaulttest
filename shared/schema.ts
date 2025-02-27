@@ -1,21 +1,13 @@
-import { pgTable, text, serial, timestamp, integer } from "drizzle-orm/pg-core";
-import { type BinaryDataType } from 'drizzle-orm/pg-core';
+import { pgTable, text, serial, timestamp, integer, PgColumn } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
-
-// Define bytea since it's not exported directly
-const bytea: () => BinaryDataType = () => ({
-  dataType: () => 'bytea',
-  enumValues: undefined,
-  notNull: false,
-});
 
 export const photos = pgTable("photos", {
   id: serial("id").primaryKey(),
   title: text("title").notNull(),
   description: text("description"),
   url: text("url").notNull(),
-  imageData: bytea().notNull(),
+  imageData: text("image_data", { mode: "binary" }).notNull(),
   tags: text("tags").array().notNull(),
   albumId: integer("album_id").references(() => albums.id),
   createdAt: timestamp("created_at").defaultNow().notNull(),

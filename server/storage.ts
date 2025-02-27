@@ -17,16 +17,14 @@ export interface IStorage {
   getAlbum(id: number): Promise<Album | undefined>;
   createAlbum(album: InsertAlbum): Promise<Album>;
   deleteAlbum(id: number): Promise<void>;
+
+  // Sample data
+  initializeSamplePhotos(): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
-  constructor() {
-    // Run sample photo initialization in background
-    this.initializeSamplePhotos().catch(console.error);
-  }
-
-  private async initializeSamplePhotos() {
-    console.log('Checking for sample photos...');
+  async initializeSamplePhotos(): Promise<void> {
+    console.log('正在检查示例照片...');
     const samplePhotos = [
       "https://images.unsplash.com/photo-1518998053901-5348d3961a04",
       "https://images.unsplash.com/photo-1578496479914-7ef3b0193be3",
@@ -37,27 +35,27 @@ export class DatabaseStorage implements IStorage {
     try {
       const existingPhotos = await this.getPhotos();
       if (existingPhotos.length === 0) {
-        console.log('No photos found, downloading samples...');
+        console.log('未找到照片，开始下载示例...');
         for (let i = 0; i < samplePhotos.length; i++) {
           try {
             const response = await fetch(samplePhotos[i]);
             const buffer = await response.buffer();
 
             await this.createPhoto({
-              title: `Sample Photo ${i + 1}`,
-              description: "A sample photo",
+              title: `示例照片 ${i + 1}`,
+              description: "一张示例照片",
               url: `/api/photos/${i + 1}/image`,
-              tags: ["sample"],
+              tags: ["示例"],
               albumId: null,
             }, buffer);
-            console.log(`Sample photo ${i + 1} downloaded and saved`);
+            console.log(`示例照片 ${i + 1} 已下载并保存`);
           } catch (error) {
-            console.error(`Failed to download sample photo ${i + 1}:`, error);
+            console.error(`下载示例照片 ${i + 1} 失败:`, error);
           }
         }
       }
     } catch (error) {
-      console.error('Error initializing sample photos:', error);
+      console.error('初始化示例照片时出错:', error);
     }
   }
 
