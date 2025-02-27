@@ -6,7 +6,6 @@ import * as fs from 'fs';
 import { exec } from 'child_process';
 import multer from 'multer';
 import path from 'path';
-import express from 'express';
 
 // Configure multer for file uploads
 const upload = multer({ 
@@ -17,13 +16,26 @@ const upload = multer({
 });
 
 export async function registerRoutes(app: Express) {
-  // Serve uploaded files
-  app.use('/uploads', express.static(path.join(process.cwd(), 'uploads')));
-
   // Photo routes
   app.get("/api/photos", async (_req, res) => {
     const photos = await storage.getPhotos();
     res.json(photos);
+  });
+
+  // Serve photo images
+  app.get("/api/photos/:id/image", async (req, res) => {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) {
+      return res.status(400).json({ message: "Invalid photo ID" });
+    }
+
+    const photo = await storage.getPhoto(id);
+    if (!photo) {
+      return res.status(404).json({ message: "Photo not found" });
+    }
+
+    res.setHeader('Content-Type', 'image/jpeg');
+    res.send(photo.imageData);
   });
 
   app.get("/api/photos/search", async (req, res) => {
@@ -48,7 +60,11 @@ export async function registerRoutes(app: Express) {
         return res.status(400).json({ message: "No file uploaded" });
       }
 
-      const photo = await storage.createPhoto(result.data, req.file.buffer);
+      const photo = await storage.createPhoto({
+        ...result.data,
+        url: `/api/photos/${result.data.id}/image`
+      }, req.file.buffer);
+
       res.status(201).json(photo);
     } catch (error) {
       console.error('Error uploading photo:', error);
@@ -103,9 +119,9 @@ export async function registerRoutes(app: Express) {
   });
 
   app.post("/api/generate-video", async (req, res) => {
-    const { photos } = req.body;
+    const { photos: photoIds } = req.body;
 
-    if (!Array.isArray(photos) || photos.length === 0) {
+    if (!Array.isArray(photoIds) || photoIds.length === 0) {
       return res.status(400).json({ message: "Invalid photos array" });
     }
 
@@ -117,17 +133,12 @@ export async function registerRoutes(app: Express) {
       const inputFile = path.join(tempDir, 'input.txt');
       let fileContent = '';
 
-      for (let i = 0; i < photos.length; i++) {
-        const photo = await storage.getPhoto(parseInt(photos[i]));
+      for (let i = 0; i < photoIds.length; i++) {
+        const photo = await storage.getPhoto(parseInt(photoIds[i]));
         if (!photo) continue;
 
-        const sourceFile = path.join(process.cwd(), photo.url.substring(1));
-        const targetFile = path.join(tempDir, `photo-${i}.jpg`);
-
-        // Copy photo to temp directory
-        await fs.promises.copyFile(sourceFile, targetFile);
-
-        // Add to input file with duration
+        const photoFile = path.join(tempDir, `photo-${i}.jpg`);
+        await fs.promises.writeFile(photoFile, photo.imageData);
         fileContent += `file 'photo-${i}.jpg'\nduration 3\n`;
       }
 

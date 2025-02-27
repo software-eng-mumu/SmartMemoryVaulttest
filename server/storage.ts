@@ -1,6 +1,7 @@
-import { Photo, Album, InsertPhoto, InsertAlbum } from "@shared/schema";
-import * as fs from 'fs';
-import * as path from 'path';
+import { Photo, Album, InsertPhoto, InsertAlbum, photos, albums } from "@shared/schema";
+import { db } from "./db";
+import { eq, desc, ilike } from "drizzle-orm";
+import fetch from "node-fetch";
 
 export interface IStorage {
   // Photo operations
@@ -18,134 +19,107 @@ export interface IStorage {
   deleteAlbum(id: number): Promise<void>;
 }
 
-export class MemStorage implements IStorage {
-  private photos: Map<number, Photo>;
-  private albums: Map<number, Album>;
-  private photoId: number;
-  private albumId: number;
-  private uploadDir: string;
-
+export class DatabaseStorage implements IStorage {
   constructor() {
-    this.photos = new Map();
-    this.albums = new Map();
-    this.photoId = 1;
-    this.albumId = 1;
-    this.uploadDir = path.join(process.cwd(), 'uploads');
+    // Run sample photo initialization in background
+    this.initializeSamplePhotos().catch(console.error);
+  }
 
-    // Create uploads directory if it doesn't exist
-    if (!fs.existsSync(this.uploadDir)) {
-      fs.mkdirSync(this.uploadDir, { recursive: true });
+  private async initializeSamplePhotos() {
+    console.log('Checking for sample photos...');
+    const samplePhotos = [
+      "https://images.unsplash.com/photo-1518998053901-5348d3961a04",
+      "https://images.unsplash.com/photo-1578496479914-7ef3b0193be3",
+      "https://images.unsplash.com/photo-1583912267382-49a82d19bd94",
+      "https://images.unsplash.com/photo-1576086476234-1103be98f096",
+    ];
+
+    try {
+      const existingPhotos = await this.getPhotos();
+      if (existingPhotos.length === 0) {
+        console.log('No photos found, downloading samples...');
+        for (let i = 0; i < samplePhotos.length; i++) {
+          try {
+            const response = await fetch(samplePhotos[i]);
+            const buffer = await response.buffer();
+
+            await this.createPhoto({
+              title: `Sample Photo ${i + 1}`,
+              description: "A sample photo",
+              url: `/api/photos/${i + 1}/image`,
+              tags: ["sample"],
+              albumId: null,
+            }, buffer);
+            console.log(`Sample photo ${i + 1} downloaded and saved`);
+          } catch (error) {
+            console.error(`Failed to download sample photo ${i + 1}:`, error);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error initializing sample photos:', error);
     }
-
-    // Add sample photos
-    const samplePhotos: Photo[] = [
-      "sample1.jpg",
-      "sample2.jpg",
-      "sample3.jpg",
-      "sample4.jpg",
-      "sample5.jpg",
-      "sample6.jpg",
-      "sample7.jpg",
-      "sample8.jpg",
-      "sample9.jpg",
-      "sample10.jpg"
-    ].map((filename, i) => ({
-      id: i + 1,
-      title: `Sample Photo ${i + 1}`,
-      description: "A sample photo",
-      url: `/uploads/${filename}`,
-      tags: ["sample"],
-      albumId: null,
-      createdAt: new Date()
-    }));
-
-    samplePhotos.forEach(photo => this.photos.set(photo.id, photo));
-    this.photoId = samplePhotos.length + 1;
   }
 
   async getPhotos(): Promise<Photo[]> {
-    return Array.from(this.photos.values());
+    return await db.select().from(photos).orderBy(desc(photos.createdAt));
   }
 
   async getPhoto(id: number): Promise<Photo | undefined> {
-    return this.photos.get(id);
+    const [photo] = await db.select().from(photos).where(eq(photos.id, id));
+    return photo;
   }
 
   async getPhotosByAlbum(albumId: number): Promise<Photo[]> {
-    return Array.from(this.photos.values()).filter(p => p.albumId === albumId);
+    return await db.select().from(photos).where(eq(photos.albumId, albumId));
   }
 
   async createPhoto(photo: InsertPhoto, file: Buffer): Promise<Photo> {
-    const filename = `photo-${Date.now()}.jpg`;
-    const filepath = path.join(this.uploadDir, filename);
-
-    // Save file to disk
-    await fs.promises.writeFile(filepath, file);
-
-    const newPhoto: Photo = {
-      ...photo,
-      id: this.photoId++,
-      url: `/uploads/${filename}`,
-      createdAt: new Date(),
-      description: photo.description || null
-    };
-
-    this.photos.set(newPhoto.id, newPhoto);
+    const [newPhoto] = await db.insert(photos).values({
+      title: photo.title,
+      description: photo.description,
+      url: photo.url,
+      tags: photo.tags,
+      albumId: photo.albumId,
+      imageData: file
+    }).returning();
     return newPhoto;
   }
 
   async deletePhoto(id: number): Promise<void> {
-    const photo = this.photos.get(id);
-    if (photo) {
-      // Delete file from disk
-      const filename = photo.url.split('/').pop();
-      if (filename) {
-        const filepath = path.join(this.uploadDir, filename);
-        if (fs.existsSync(filepath)) {
-          await fs.promises.unlink(filepath);
-        }
-      }
-      this.photos.delete(id);
-    }
+    await db.delete(photos).where(eq(photos.id, id));
   }
 
   async searchPhotos(query: string): Promise<Photo[]> {
     const lowercaseQuery = query.toLowerCase();
-    return Array.from(this.photos.values()).filter(photo => 
-      photo.title.toLowerCase().includes(lowercaseQuery) ||
-      photo.tags.some(tag => tag.toLowerCase().includes(lowercaseQuery))
-    );
+    return await db.select()
+      .from(photos)
+      .where(ilike(photos.title, `%${lowercaseQuery}%`));
   }
 
   async getAlbums(): Promise<Album[]> {
-    return Array.from(this.albums.values());
+    return await db.select().from(albums);
   }
 
   async getAlbum(id: number): Promise<Album | undefined> {
-    return this.albums.get(id);
+    const [album] = await db.select().from(albums).where(eq(albums.id, id));
+    return album;
   }
 
   async createAlbum(album: InsertAlbum): Promise<Album> {
-    const newAlbum: Album = {
-      ...album,
-      id: this.albumId++,
-      createdAt: new Date(),
-      description: album.description || null
-    };
-    this.albums.set(newAlbum.id, newAlbum);
+    const [newAlbum] = await db.insert(albums).values(album).returning();
     return newAlbum;
   }
 
   async deleteAlbum(id: number): Promise<void> {
-    this.albums.delete(id);
-    // Remove album reference from photos
-    for (const photo of this.photos.values()) {
-      if (photo.albumId === id) {
-        const updatedPhoto = { ...photo, albumId: null };
-        this.photos.set(photo.id, updatedPhoto);
-      }
-    }
+    // First update all photos in this album to have no album
+    await db.update(photos)
+      .set({ albumId: null })
+      .where(eq(photos.albumId, id));
+
+    // Then delete the album
+    await db.delete(albums).where(eq(albums.id, id));
   }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
