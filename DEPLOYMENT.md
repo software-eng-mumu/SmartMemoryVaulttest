@@ -2,6 +2,7 @@
 
 ## 系统要求
 - Node.js 20.x
+- PostgreSQL 数据库
 - ffmpeg (用于视频生成)
 
 ## 部署步骤
@@ -13,7 +14,7 @@ sudo apt update
 sudo apt upgrade -y
 
 # 安装必要的系统依赖
-sudo apt install -y ffmpeg curl
+sudo apt install -y ffmpeg curl postgresql postgresql-contrib
 
 # 安装 Node.js 20.x
 curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
@@ -25,7 +26,18 @@ npm --version
 ffmpeg -version
 ```
 
-### 2. 部署项目代码
+### 2. 配置 PostgreSQL 数据库
+```bash
+# 启动并启用 PostgreSQL 服务
+sudo systemctl start postgresql
+sudo systemctl enable postgresql
+
+# 创建数据库用户和数据库
+sudo -u postgres psql -c "CREATE USER photoalbum WITH PASSWORD 'your_password';"
+sudo -u postgres psql -c "CREATE DATABASE photoalbum_db OWNER photoalbum;"
+```
+
+### 3. 部署项目代码
 ```bash
 # 创建项目目录
 mkdir -p /var/www/photo-album
@@ -36,12 +48,9 @@ git clone <your-repository-url> .
 
 # 安装项目依赖
 npm install
-
-# 构建项目
-npm run build
 ```
 
-### 3. 配置环境变量
+### 4. 配置环境变量
 创建 `.env` 文件并配置必要的环境变量：
 ```bash
 touch .env
@@ -51,9 +60,21 @@ touch .env
 ```env
 NODE_ENV=production
 PORT=5000
+DATABASE_URL=postgres://photoalbum:your_password@localhost:5432/photoalbum_db
 ```
 
-### 4. 使用PM2运行应用
+### 5. 初始化数据库
+```bash
+# 运行数据库迁移
+npm run db:push
+```
+
+### 6. 构建项目
+```bash
+npm run build
+```
+
+### 7. 使用PM2运行应用
 ```bash
 # 安装PM2
 sudo npm install -g pm2
@@ -69,7 +90,7 @@ pm2 save
 pm2 status
 ```
 
-### 5. 配置Nginx (可选，用于反向代理)
+### 8. 配置Nginx (可选，用于反向代理)
 ```bash
 # 安装Nginx
 sudo apt install -y nginx
@@ -92,6 +113,9 @@ server {
         proxy_set_header Host $host;
         proxy_cache_bypass $http_upgrade;
     }
+
+    # 配置较大的上传限制
+    client_max_body_size 10M;
 }
 ```
 
@@ -106,11 +130,17 @@ sudo systemctl restart nginx
 
 ### 更新应用
 ```bash
+# 进入应用目录
+cd /var/www/photo-album
+
 # 拉取最新代码
 git pull
 
 # 安装依赖
 npm install
+
+# 运行数据库迁移
+npm run db:push
 
 # 重新构建
 npm run build
@@ -137,4 +167,15 @@ pm2 show photo-album
 
 # 检查Nginx状态
 sudo systemctl status nginx
+
+# 检查PostgreSQL状态
+sudo systemctl status postgresql
 ```
+
+### 备份数据库
+```bash
+# 创建数据库备份
+pg_dump -U photoalbum photoalbum_db > backup.sql
+
+# 恢复数据库备份
+psql -U photoalbum photoalbum_db < backup.sql
