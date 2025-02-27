@@ -1,7 +1,7 @@
 import { motion } from "framer-motion";
 import { Skeleton } from "@/components/ui/skeleton";
-import PhotoCard from "./PhotoCard";
 import type { Photo } from "@shared/schema";
+import PhotoCard from "./PhotoCard";
 
 interface PhotoGridProps {
   photos: Photo[];

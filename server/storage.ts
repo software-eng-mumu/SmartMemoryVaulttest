@@ -29,7 +29,7 @@ export class MemStorage implements IStorage {
     this.albumId = 1;
 
     // Add sample photos
-    const samplePhotos = [
+    const samplePhotos: Photo[] = [
       "https://images.unsplash.com/photo-1518998053901-5348d3961a04",
       "https://images.unsplash.com/photo-1578496479914-7ef3b0193be3",
       "https://images.unsplash.com/photo-1583912267382-49a82d19bd94",
@@ -70,7 +70,8 @@ export class MemStorage implements IStorage {
     const newPhoto: Photo = {
       ...photo,
       id: this.photoId++,
-      createdAt: new Date()
+      createdAt: new Date(),
+      description: photo.description || null
     };
     this.photos.set(newPhoto.id, newPhoto);
     return newPhoto;
@@ -100,7 +101,8 @@ export class MemStorage implements IStorage {
     const newAlbum: Album = {
       ...album,
       id: this.albumId++,
-      createdAt: new Date()
+      createdAt: new Date(),
+      description: album.description || null
     };
     this.albums.set(newAlbum.id, newAlbum);
     return newAlbum;
@@ -111,7 +113,8 @@ export class MemStorage implements IStorage {
     // Remove album reference from photos
     for (const photo of this.photos.values()) {
       if (photo.albumId === id) {
-        this.photos.set(photo.id, { ...photo, albumId: null });
+        const updatedPhoto = { ...photo, albumId: null };
+        this.photos.set(photo.id, updatedPhoto);
       }
     }
   }
