@@ -174,12 +174,14 @@ export async function registerRoutes(app: Express) {
     const { photos: photoIds } = req.body;
 
     if (!Array.isArray(photoIds) || photoIds.length === 0) {
-      return res.status(400).json({ message: "Invalid photos array" });
+      return res.status(400).json({ message: "无效的照片数组" });
     }
 
     try {
+      console.log('开始为以下照片生成视频:', photoIds);
       const tempDir = path.join(process.cwd(), 'temp', `slideshow-${Date.now()}`);
       await fs.promises.mkdir(tempDir, { recursive: true });
+      console.log('创建临时目录:', tempDir);
 
       // Create a file list for ffmpeg
       const inputFile = path.join(tempDir, 'input.txt');
@@ -187,39 +189,52 @@ export async function registerRoutes(app: Express) {
 
       for (let i = 0; i < photoIds.length; i++) {
         const photo = await storage.getPhoto(parseInt(photoIds[i]));
-        if (!photo) continue;
+        if (!photo) {
+          console.error(`未找到ID为 ${photoIds[i]} 的照片`);
+          continue;
+        }
 
         const photoFile = path.join(tempDir, `photo-${i}.jpg`);
         await fs.promises.writeFile(photoFile, photo.imageData);
         fileContent += `file 'photo-${i}.jpg'\nduration 3\n`;
+        console.log(`已保存照片 ${i + 1}/${photoIds.length}`);
       }
 
       await fs.promises.writeFile(inputFile, fileContent);
+      console.log('已创建ffmpeg输入文件');
 
       // Generate video with ffmpeg
+      const outputPath = path.join(tempDir, 'output.mp4');
+      console.log('开始生成视频...');
+
       await new Promise((resolve, reject) => {
-        const command = `ffmpeg -f concat -safe 0 -i "${inputFile}" -vf "fade=t=in:st=0:d=1,fade=t=out:st=2:d=1" -pix_fmt yuv420p "${path.join(tempDir, 'output.mp4')}"`;
-        exec(command, { cwd: tempDir }, (error) => {
+        const command = `ffmpeg -f concat -safe 0 -i "${inputFile}" -vf "fade=t=in:st=0:d=1,fade=t=out:st=2:d=1" -pix_fmt yuv420p "${outputPath}"`;
+        console.log('执行ffmpeg命令:', command);
+
+        exec(command, { cwd: tempDir }, (error, stdout, stderr) => {
           if (error) {
-            console.error('FFmpeg error:', error);
+            console.error('FFmpeg错误:', error);
+            console.error('FFmpeg stderr:', stderr);
             reject(error);
           } else {
+            console.log('FFmpeg stdout:', stdout);
             resolve(null);
           }
         });
       });
 
-      // Send video file
-      const video = await fs.promises.readFile(path.join(tempDir, 'output.mp4'));
+      console.log('视频生成完成，准备发送');
+      const video = await fs.promises.readFile(outputPath);
       res.setHeader('Content-Type', 'video/mp4');
       res.setHeader('Content-Disposition', 'attachment; filename=slideshow.mp4');
       res.send(video);
 
       // Cleanup
       await fs.promises.rm(tempDir, { recursive: true });
+      console.log('清理临时文件完成');
     } catch (error) {
-      console.error('Video generation error:', error);
-      res.status(500).json({ message: "Failed to generate video" });
+      console.error('视频生成错误:', error);
+      res.status(500).json({ message: "生成视频失败" });
     }
   });
 

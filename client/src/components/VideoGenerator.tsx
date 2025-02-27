@@ -4,7 +4,6 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Loader2, Video } from "lucide-react";
@@ -24,27 +23,31 @@ export default function VideoGenerator({ selectedPhotos, onClose }: VideoGenerat
   const generateVideo = async () => {
     try {
       setGenerating(true);
+      console.log('Generating video for photos:', selectedPhotos.map(p => p.id));
+
       const response = await fetch("/api/generate-video", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          photos: selectedPhotos.map(p => p.url),
+          photos: selectedPhotos.map(p => p.id)
         }),
       });
 
       if (!response.ok) {
-        throw new Error("Failed to generate video");
+        const error = await response.text();
+        throw new Error(error || 'Failed to generate video');
       }
 
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
       setVideoUrl(url);
     } catch (error) {
+      console.error('Video generation error:', error);
       toast({
-        title: "Error",
-        description: "Failed to generate video. Please try again.",
+        title: "错误",
+        description: "生成视频失败，请重试。",
         variant: "destructive",
       });
     } finally {
@@ -54,7 +57,7 @@ export default function VideoGenerator({ selectedPhotos, onClose }: VideoGenerat
 
   const downloadVideo = () => {
     if (!videoUrl) return;
-    
+
     const a = document.createElement("a");
     a.href = videoUrl;
     a.download = "photo-slideshow.mp4";
@@ -64,14 +67,14 @@ export default function VideoGenerator({ selectedPhotos, onClose }: VideoGenerat
   };
 
   return (
-    <Dialog>
+    <Dialog open>
       <DialogContent className="sm:max-w-[425px]">
         <DialogHeader>
-          <DialogTitle>Generate Video</DialogTitle>
+          <DialogTitle>生成视频</DialogTitle>
         </DialogHeader>
         <div className="grid gap-4 py-4">
           <p className="text-sm text-muted-foreground">
-            Generate a video slideshow with {selectedPhotos.length} selected photos
+            将生成包含 {selectedPhotos.length} 张照片的视频幻灯片
           </p>
           {!videoUrl ? (
             <Button 
@@ -81,12 +84,12 @@ export default function VideoGenerator({ selectedPhotos, onClose }: VideoGenerat
               {generating ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Generating...
+                  正在生成...
                 </>
               ) : (
                 <>
                   <Video className="mr-2 h-4 w-4" />
-                  Generate Video
+                  生成视频
                 </>
               )}
             </Button>
@@ -102,12 +105,12 @@ export default function VideoGenerator({ selectedPhotos, onClose }: VideoGenerat
                   variant="outline"
                   onClick={onClose}
                 >
-                  Close
+                  关闭
                 </Button>
                 <Button
                   onClick={downloadVideo}
                 >
-                  Download
+                  下载
                 </Button>
               </div>
             </div>
