@@ -187,18 +187,35 @@ export async function registerRoutes(app: Express) {
       const inputFile = path.join(tempDir, 'input.txt');
       let fileContent = '';
 
+      // 确保所有照片都存在且有效
+      const photos = [];
       for (let i = 0; i < photoIds.length; i++) {
         const photo = await storage.getPhoto(parseInt(photoIds[i]));
         if (!photo) {
           console.error(`未找到ID为 ${photoIds[i]} 的照片`);
           continue;
         }
-
-        const photoFile = path.join(tempDir, `photo-${i}.jpg`);
-        await fs.promises.writeFile(photoFile, photo.imageData);
-        fileContent += `file 'photo-${i}.jpg'\nduration 3\n`;
-        console.log(`已保存照片 ${i + 1}/${photoIds.length}`);
+        if (!photo.imageData || photo.imageData.length === 0) {
+          console.error(`照片 ${photoIds[i]} 没有图片数据`);
+          continue;
+        }
+        photos.push(photo);
       }
+
+      if (photos.length === 0) {
+        throw new Error('没有有效的照片可以生成视频');
+      }
+
+      // 写入图片文件
+      for (let i = 0; i < photos.length; i++) {
+        const photoFile = path.join(tempDir, `photo-${i}.jpg`);
+        await fs.promises.writeFile(photoFile, Buffer.from(photos[i].imageData));
+        fileContent += `file 'photo-${i}.jpg'\nduration 3\n`;
+        console.log(`已保存照片 ${i + 1}/${photos.length}`);
+      }
+
+      // 最后一张图片需要额外的文件条目来显示最后一帧
+      fileContent += `file 'photo-${photos.length - 1}.jpg'\n`;
 
       await fs.promises.writeFile(inputFile, fileContent);
       console.log('已创建ffmpeg输入文件');
@@ -208,7 +225,8 @@ export async function registerRoutes(app: Express) {
       console.log('开始生成视频...');
 
       await new Promise((resolve, reject) => {
-        const command = `ffmpeg -f concat -safe 0 -i "${inputFile}" -vf "fade=t=in:st=0:d=1,fade=t=out:st=2:d=1" -pix_fmt yuv420p "${outputPath}"`;
+        // 添加 -loglevel debug 来获取更多的 ffmpeg 日志信息
+        const command = `ffmpeg -loglevel debug -f concat -safe 0 -i "${inputFile}" -vf "scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:-1:-1:color=black,fade=t=in:st=0:d=1,fade=t=out:st=2:d=1" -pix_fmt yuv420p "${outputPath}"`;
         console.log('执行ffmpeg命令:', command);
 
         exec(command, { cwd: tempDir }, (error, stdout, stderr) => {
@@ -234,7 +252,7 @@ export async function registerRoutes(app: Express) {
       console.log('清理临时文件完成');
     } catch (error) {
       console.error('视频生成错误:', error);
-      res.status(500).json({ message: "生成视频失败" });
+      res.status(500).json({ message: "生成视频失败，原因：" + error.message });
     }
   });
 
